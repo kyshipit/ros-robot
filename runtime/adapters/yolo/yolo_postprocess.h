@@ -1,0 +1,59 @@
+/*
+ * adapters/yolo_postprocess.h
+ *
+ * YOLOv5 后处理 API（实现见 yolo_postprocess.cpp，逻辑与正点原子 atk 例程对齐）。
+ * 仅供 YoloAdapter 使用；engine 不直接依赖本模块。
+ */
+#ifndef _RKNN_YOLOV5_DEMO_POSTPROCESS_H_
+#define _RKNN_YOLOV5_DEMO_POSTPROCESS_H_
+
+#include <stdint.h>
+#include <vector>
+#include "rknn_api.h"
+#include "common.h"
+#include "image_utils.h"
+
+typedef struct {
+    rknn_context rknn_ctx;
+    rknn_input_output_num io_num;
+    rknn_tensor_attr* input_attrs;
+    rknn_tensor_attr* output_attrs;
+    int model_channel;
+    int model_width;
+    int model_height;
+    bool is_quant;
+} rknn_app_context_t;
+
+#define OBJ_NAME_MAX_SIZE 64
+#define OBJ_NUMB_MAX_SIZE 128
+#define OBJ_CLASS_NUM 80
+#define NMS_THRESH 0.45
+#define BOX_THRESH 0.25
+#define PROP_BOX_SIZE (5 + OBJ_CLASS_NUM)
+
+// class rknn_app_context_t;
+
+typedef struct {
+    image_rect_t box;
+    float prop;
+    int cls_id;
+} object_detect_result;
+
+typedef struct {
+    int id;
+    int count;
+    object_detect_result results[OBJ_NUMB_MAX_SIZE];
+} object_detect_result_list;
+
+// 初始化后处理模块（加载标签文件）。
+int init_post_process();
+// 释放后处理模块资源（标签内存）。
+void deinit_post_process();
+// 通过类别 id 查询 COCO 标签名。
+char *coco_cls_to_name(int cls_id);
+// YOLO 后处理：解码候选框、NMS、回写标准检测结果。
+int post_process(rknn_app_context_t *app_ctx, void *outputs, letterbox_t *letter_box, float conf_threshold, float nms_threshold, object_detect_result_list *od_results);
+
+// 兼容历史命名（保留声明，避免旧代码链接失败）。
+void deinitPostProcess();
+#endif //_RKNN_YOLOV5_DEMO_POSTPROCESS_H_
