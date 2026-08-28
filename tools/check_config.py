@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""校验 runtime/config/default.yaml 结构与 main.cc 读取项一致。"""
+"""校验 src/eai_bot/config/default.yaml 结构与 main_ros.cc 读取项一致。"""
 
 from __future__ import annotations
 
@@ -208,12 +208,12 @@ def check_ranges(cfg: dict[str, Any], errors: list[str]) -> None:
 
 def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
-    parser = argparse.ArgumentParser(description="校验 edgeai runtime 配置文件")
+    parser = argparse.ArgumentParser(description="校验 eai_bot 配置文件")
     parser.add_argument(
         "config",
         nargs="?",
-        default=str(repo_root / "runtime/config/default.yaml"),
-        help="yaml 配置文件路径（默认 runtime/config/default.yaml）",
+        default=str(repo_root / "src/eai_bot/config/default.yaml"),
+        help="yaml 配置文件路径（默认 src/eai_bot/config/default.yaml）",
     )
     args = parser.parse_args()
 

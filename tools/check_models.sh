@@ -2,15 +2,15 @@
 # 检查 default.yaml 中引用的模型/词表文件是否存在且非空。
 # 用法:
 #   ./tools/check_models.sh
-#   ./tools/check_models.sh --cwd /path/to/rknn_eai_rk3588
-#   ./tools/check_models.sh --config runtime/config/default.yaml --cwd .
+#   ./tools/check_models.sh --cwd /path/to/install/eai_bot
+#   ./tools/check_models.sh --config src/eai_bot/config/default.yaml --cwd .
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 CWD="${REPO_ROOT}"
-CONFIG="${REPO_ROOT}/runtime/config/default.yaml"
+CONFIG="${REPO_ROOT}/src/eai_bot/config/default.yaml"
 
 usage() {
     echo "用法: $0 [--cwd DIR] [--config PATH]" >&2
