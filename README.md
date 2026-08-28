@@ -1,8 +1,10 @@
-# EAI-RK3588：基于插件的边缘AI平台
+# ros-robot：基于 ROS2 的插件化边缘 AI 机器人平台
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-EAI-RK3588 是为 Rockchip RK3588 设计的可扩展边缘推理平台。通过一份 YAML 配置文件驱动，结合多线程视频流水线与插件化架构，内置 YOLO、SCRFD 模型，并支持本地 RKLLM 对话及语音合成（TTS）。默认应用展示了人脸门控、AI 问候与对话等功能。
+ros-robot 是为 Rockchip RK3588 设计、基于 ROS2（Jazzy）的可扩展边缘 AI 机器人平台。通过一份 YAML 配置文件驱动，结合多线程视频流水线与插件化架构，内置 YOLO、SCRFD 模型，并支持本地 RKLLM 对话及语音合成（TTS）。检测结果通过自定义 ROS2 消息实时发布，默认应用展示了人脸门控、AI 问候与对话等功能。
+
+> 本仓库是标准 colcon 工作空间：核心逻辑封装为 ROS2 包 `eai_bot`，通过 `ros_bridge` 层将推理结果发布为 ROS2 话题，业务与 ROS 解耦。
 
 
 ---
@@ -11,6 +13,7 @@ EAI-RK3588 是为 Rockchip RK3588 设计的可扩展边缘推理平台。通过�
 - [✨ 核心特性](#-核心特性)
 - [🏗️ 架构设计](#️-架构设计)
 - [🚀 快速开始](#-快速开始)
+- [🔌 ROS2 集成](#-ros2-集成)
 - [⚙️ 配置说明](#️-配置说明)
 - [📖 文档与代码入口](#-文档与代码入口)
 - [🔧 本地检查工具](#-本地检查工具)
@@ -23,47 +26,76 @@ EAI-RK3588 是为 Rockchip RK3588 设计的可扩展边缘推理平台。通过�
 
 - **配置驱动**：所有功能（检测、对话、语音）通过 `default.yaml` 灵活开关。
 
+- **ROS2 集成**：以标准 `eai_bot` 包构建，检测结果实时发布为 ROS2 话题，可被其他 ROS 节点订阅。
+
 - **低延迟流水线**：视频帧处理与 LLM/TTS 逻辑分离，保证实时推理性能。
 
 - **开箱即用的人脸门控场景**：人员检测 → 人脸识别 → 自动问候 → 语音对话，完整端到端流程。
 
 - **支持本地大模型**：集成 RKLLM，无需联网即可进行对话推理。
 
-- **跨平台编译**：提供交叉编译脚本，快速部署到正点原子 RK3588 开发板。
+- **跨平台编译**：基于 colcon + 交叉工具链，一键编译并部署到正点原子 RK3588 开发板。
 
 
 ## 🏗️ 架构设计
 
-| 层       | 目录                                    | 职责                                      |
-| -------- | --------------------------------------- | ----------------------------------------- |
-| 入口     | `runtime/app/`                          | 读取 YAML，启动 Pipeline 与 ModelCoordinator |
-| 采集/显示 | `runtime/capture/`, `runtime/display/`  | 采集帧、旋转、画框、OpenCV 预览           |
-| 引擎     | `runtime/engine/`                       | 预处理 → 推理 → 主线程显示与 stdin 交互   |
-| 策略     | `runtime/platform/`                     | 场景切换、人脸门控、自动问候逻辑          |
-| 模型插件 | `runtime/adapters/`                     | yolo / scrfd / llm / tts 插件，按配置启停 |
+| 层       | 目录                                     | 职责                                      |
+| -------- | ---------------------------------------- | ----------------------------------------- |
+| 入口     | `src/eai_bot/app/`                       | 读取 YAML，装配 Pipeline、ModelCoordinator 与 RosBridge |
+| 采集/显示 | `src/eai_bot/capture/`, `src/eai_bot/display/` | 采集帧、旋转、画框、OpenCV 预览    |
+| 引擎     | `src/eai_bot/engine/`                    | 预处理 → 推理 → 后处理回调               |
+| 策略     | `src/eai_bot/platform/`                  | 场景切换、人脸门控、自动问候逻辑          |
+| 模型插件 | `src/eai_bot/adapters/`                  | yolo / scrfd / llm / tts 插件，按配置启停 |
+| ROS2 桥接 | `src/eai_bot/ros_bridge/`               | 发布 ROS2 话题，业务与 ROS 解耦          |
 
 更详细的启动顺序、线程模型与设计决策请参阅：[docs/architecture-and-runtime.md](docs/architecture-and-runtime.md)。
 
 ## 🚀 快速开始
 
-```bash
-# 1. 进入 runtime 目录
-cd runtime
+> 环境依赖：需要正点原子 RK3588 交叉工具链（`/opt/atk-dlrk3588-toolchain`）、板端 ROS2 sysroot（默认 `~/software/rk_sysroot`，可用 `SYSROOT_ROS` 环境变量覆盖），以及宿主机安装的 colcon 工具。
 
-# 2. 执行交叉编译脚本（使用正点原子工具链）
+```bash
+# 1. 在仓库根目录执行交叉编译脚本（colcon build）
 ./build-linux.sh
 
-# 3. 将编译产物推送到开发板（替换 <target_directory> 为板端目录，如 /userdata）
-adb push install/rk3588_linux_aarch64/rknn_eai_rk3588 /userdata/aidemo
+# 2. 将编译产物（install 目录）同步到开发板（替换 <board_ip> 为板端地址）
+rsync -avz install/ root@<board_ip>:/path/to/workspace/install/
 
-# 4. 进入板端目录
-cd /userdata/aidemo/rknn_eai_rk3588
-./edgeai_app
+# 3. 在板端工作空间目录下，source 后运行
+#    source /opt/ros/jazzy/setup.bash
+#    source install/setup.bash
+ros2 run eai_bot eai_bot_app
+```
+
+## 🔌 ROS2 集成
+
+- **包名**：`eai_bot`（`ament_cmake` 包，`package.xml`）
+- **节点**：`eai_detector`（默认，见 `src/eai_bot/ros_bridge/ros_bridge.h`）
+- **发布话题**：
+
+| 话题                      | 消息类型              | 说明                         |
+| ------------------------- | --------------------- | ---------------------------- |
+| `/eai/detections/yolo`    | `eai_bot/DetectionResult` | YOLO 检测结果             |
+| `/eai/detections/scrfd`   | `eai_bot/DetectionResult` | SCRFD 人脸检测结果        |
+
+- **自定义消息**（`src/eai_bot/msg/`）：
+
+| 消息                 | 说明                                         |
+| -------------------- | -------------------------------------------- |
+| `Point2D`            | 2D 像素坐标                                  |
+| `Box`                | 检测框（label、坐标、score、可选 5 个人脸关键点） |
+| `DetectionResult`    | 每帧每槽位一条：frame_id、slot、是否有人/人脸、所有框 |
+
+桥接层通过 `ros_bridge/ros_bridge.cpp` 将推理结果转换为消息发布；engine/、platform/、adapters/ 等业务代码不感知 ROS。订阅示例：
+
+```bash
+# 在板端另开终端，source 工作空间后订阅
+ros2 topic echo /eai/detections/yolo eai_bot/msg/DetectionResult
 ```
 
 ## ⚙️ 配置说明
 
-关键配置项（位于 `config/default.yaml`）：
+关键配置项（位于 `src/eai_bot/config/default.yaml`）：
 
 | 配置项 | 说明 |
 | ------ | ---- |
@@ -78,7 +110,7 @@ cd /userdata/aidemo/rknn_eai_rk3588
 | `capture.device` | 摄像头设备节点（如 `/dev/video0`） |
 | `display.window_name` | 预览窗口标题 |
 
-完整字段及注释请参考 `runtime/config/default.yaml`。
+完整字段及注释请参考 `src/eai_bot/config/default.yaml`。
 
 ---
 
@@ -96,13 +128,14 @@ cd /userdata/aidemo/rknn_eai_rk3588
 
 | 用途 | 路径 |
 | ---- | ---- |
-| 主程序入口 | `runtime/app/main.cc` |
-| 每帧处理流水线 | `runtime/engine/pipeline.cpp` |
-| 场景协调器 | `runtime/platform/model_coordinator.cpp` |
-| 人脸门控与问候逻辑 | `runtime/platform/llm_greeting.cpp` |
-| RKLLM 插件 | `runtime/adapters/llm/` |
-| TTS 实现 | `runtime/voice/` + `runtime/adapters/melotts/` |
-| 默认配置文件 | `runtime/config/default.yaml` |
+| 主程序入口 | `src/eai_bot/app/main_ros.cc` |
+| 每帧处理流水线 | `src/eai_bot/engine/pipeline.cpp` |
+| 场景协调器 | `src/eai_bot/platform/model_coordinator.cpp` |
+| 人脸门控与问候逻辑 | `src/eai_bot/platform/llm_greeting.cpp` |
+| ROS2 桥接层 | `src/eai_bot/ros_bridge/ros_bridge.cpp` |
+| RKLLM 插件 | `src/eai_bot/adapters/llm/` |
+| TTS 实现 | `src/eai_bot/voice/` + `src/eai_bot/adapters/melotts/` |
+| 默认配置文件 | `src/eai_bot/config/default.yaml` |
 
 ---
 
@@ -121,15 +154,24 @@ python3 tools/check_config.py
 ## 仓库结构
 
 ```text
-edgeai_platform/
-├── model/          # yolov5.rknn、scrfd.rknn、.rkllm、TTS encoder/decoder RKNN、lexicon.txt、tokens.txt
-├── docs/           # 平台文档
-├── assets/         # 架构图等
-├── runtime/
-│   ├── app/ engine/ platform/ capture/ display/
-│   ├── adapters/yolo|scrfd|llm|tts/
-│   └── config/default.yaml
-└── tools/          # 开发/集成辅助（配置校验、模型文件检查等），不参与板端运行
+ros-robot/                      # colcon 工作空间根目录
+├── build-linux.sh              # colcon 交叉编译脚本（RK3588 / aarch64 / ROS2 Jazzy）
+├── toolchain_rk3588.cmake      # 交叉编译工具链配置
+├── model/                      # yolov5.rknn、scrfd.rknn、.rkllm、TTS encoder/decoder RKNN、lexicon.txt、tokens.txt
+├── docs/                       # 平台文档
+├── tools/                      # 开发/集成辅助（配置校验、模型文件检查等），不参与板端运行
+└── src/
+    └── eai_bot/                # ROS2 包（ament_cmake）
+        ├── package.xml
+        ├── CMakeLists.txt
+        ├── msg/                # 自定义消息：Point2D、Box、DetectionResult
+        ├── app/                # main_ros.cc 入口（装载 config 与 ROS 装配）
+        ├── ros_bridge/         # ROS2 桥接层（发布检测话题）
+        ├── engine/ platform/ capture/ display/ voice/
+        ├── adapters/           # yolo / scrfd / llm / melotts 插件
+        ├── 3rdparty/           # rknpu2 / rkllm / onnx 等依赖
+        ├── utils/
+        └── config/default.yaml
 ```
 
 ## 📄 License
