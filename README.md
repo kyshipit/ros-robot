@@ -1,6 +1,14 @@
 # ros-robot：基于 ROS2 的插件化边缘 AI 机器人平台
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+![License: MIT](https://img.shields.io/badge/ROS2-0091BD?style=flat-square&logo=ros&logoColor=white)
+![OpenCV](https://img.shields.io/badge/OpenCV-green?logo=opencv)
+![Platform](https://img.shields.io/badge/Platform-RK3588-red)
+![YOLO](https://img.shields.io/badge/YOLOv5-111F68?logo=yolo&logoColor=white)
+![TTS](https://img.shields.io/badge/TTS-MeloTTS-blue)
+![SCRFD](https://img.shields.io/badge/SCRFD-FF6F00)
+![RKNN](https://img.shields.io/badge/RKNN-orange)
+![RKLLM](https://img.shields.io/badge/RKLLM-brightgreen)
 
 ros-robot 是为 Rockchip RK3588 设计、基于 ROS2（Jazzy）的可扩展边缘 AI 机器人平台。通过一份 YAML 配置文件驱动，结合多线程视频流水线与插件化架构，内置 YOLO、SCRFD 模型，并支持本地 RKLLM 对话及语音合成（TTS）。检测结果通过自定义 ROS2 消息实时发布，默认应用展示了人脸门控、AI 问候与对话等功能。
 
