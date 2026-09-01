@@ -17,6 +17,8 @@
 #include <memory>
 #include <string>
 
+#include "std_msgs/msg/string.hpp"
+
 #include "eai_bot/msg/detection_result.hpp"
 
 #include "ros_bridge/detection_msg_builder.h"
@@ -37,7 +39,22 @@ public:
         scrfd_pub_ = node_->create_publisher<eai_bot::msg::DetectionResult>(
             "/eai/detections/scrfd", 10);
 
-        LogInfo("RosBridge: node '%s' started, publishers on /eai/detections/{yolo,scrfd}",
+        // 输入订阅：外部节点通过 /eai/user_prompt 推送文本交予 LLM。
+        prompt_sub_ = node_->create_subscription<std_msgs::msg::String>(
+            "/eai/user_prompt", 10,
+            [this](const std_msgs::msg::String::SharedPtr msg) {
+                if (!input_handler_) {
+                    return;
+                }
+                const std::string text = msg->data;
+                if (text.empty()) {
+                    return;
+                }
+                LogDebug("RosBridge: /eai/user_prompt received (%zu chars)", text.size());
+                input_handler_(text);
+            });
+
+        LogInfo("RosBridge: node '%s' started, pubs /eai/detections/{yolo,scrfd} sub /eai/user_prompt",
                 node_name.c_str());
     }
 
@@ -81,10 +98,16 @@ public:
         LogInfo("RosBridge: installed into pipeline");
     }
 
+    void SetInputHandler(std::function<bool(const std::string&)> handler) {
+        input_handler_ = std::move(handler);
+    }
+
 private:
     std::shared_ptr<rclcpp::Node> node_;
     std::shared_ptr<rclcpp::Publisher<eai_bot::msg::DetectionResult>> yolo_pub_;
     std::shared_ptr<rclcpp::Publisher<eai_bot::msg::DetectionResult>> scrfd_pub_;
+    std::shared_ptr<rclcpp::Subscription<std_msgs::msg::String>> prompt_sub_;
+    std::function<bool(const std::string&)> input_handler_;
 };
 
 // ---------------------------------------------------------------------------
@@ -102,6 +125,10 @@ void RosBridge::PublishTask(const InferenceTask& task) {
 
 void RosBridge::Install(Pipeline& pipeline) {
     impl_->Install(pipeline);
+}
+
+void RosBridge::SetInputHandler(std::function<bool(const std::string&)> handler) {
+    impl_->SetInputHandler(std::move(handler));
 }
 
 }  // namespace ros_bridge

@@ -403,6 +403,7 @@ void LlmWorker::Shutdown() {
     session_.Shutdown();
     if (voice_bridge_) {
         voice_bridge_->Reset();
+        voice_bridge_ = nullptr;  // 切断指针，避免析构阶段二次解引用。
     }
     std::lock_guard<std::mutex> lock(mutex_);
     init_state_ = InitState::Uninitialized;

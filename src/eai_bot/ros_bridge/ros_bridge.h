@@ -20,6 +20,7 @@
  */
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -53,6 +54,11 @@ public:
 
     // 兼容旧接口：安装自身到 Pipeline（仅适用于纯无头模式，不需要其他 PostTaskHandler）。
     void Install(Pipeline& pipeline);
+
+    // 绑定外部输入处理：订阅 /eai/user_prompt（std_msgs/String），
+    // 收到文本后回调 handler（非 ROS 线程；仅转发到调用方注入的逻辑）。
+    // handler 返回值决定是否被接受（与 SubmitUserPrompt 语义一致）。
+    void SetInputHandler(std::function<bool(const std::string&)> handler);
 
 private:
     class Impl;

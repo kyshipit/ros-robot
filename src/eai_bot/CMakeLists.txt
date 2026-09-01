@@ -23,6 +23,7 @@ find_package(ament_cmake REQUIRED)
 set(CMAKE_DISABLE_FIND_PACKAGE_rosidl_generator_py TRUE)
 find_package(rosidl_default_generators REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
 
 set(msg_files
   "msg/Point2D.msg"
@@ -72,6 +73,7 @@ set(OPENCV_LIBS
 # ==========================================================================
 set(EAI_BOT_SRC
   app/main_ros.cc
+  app/console_ui/console_ui.cpp
   engine/pipeline.cpp
   engine/thread_pool.cpp
   platform/model_coordinator.cpp
@@ -156,6 +158,7 @@ add_definitions(-DTRACETOOLS_DISABLED)
 rosidl_get_typesupport_target(cpp_typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
 target_link_libraries(eai_bot_app "${cpp_typesupport_target}")
 target_link_libraries(eai_bot_app rclcpp::rclcpp)
+target_link_libraries(eai_bot_app std_msgs::std_msgs)
 
 install(TARGETS eai_bot_app DESTINATION lib/${PROJECT_NAME})
 install(FILES ${LIBRKNNRT} DESTINATION lib)

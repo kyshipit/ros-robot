@@ -2,16 +2,8 @@
 // SPDX-FileCopyrightText: 2026 KY (kyshipit)
 
 /*
- * app/main_ros.cc — ROS2 集成入口。
- *
- * 与 app/main.cc 装配逻辑完全一致，差异仅在于：
- *   1. 开头初始化 ROS2（通过 RosBridge）。
- *   2. PostTaskHandler 中额外调用 bridge.PublishTask(task) 发布 ROS 消息。
- *   3. 不再使用 ConsoleUi（ROS2 节点通过 ros2 topic/ros2 service 交互）。
- *
- * 所有 engine/、platform/、adapters/ 代码不动。
+ * app/main.cc — 进程入口：读配置、注册适配器、组装各模块并运行 Pipeline。
  */
-#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -37,7 +29,7 @@
 #include "voice/voice_reply_bridge.h"
 #include "app/config_parser.h"
 #include "app/console_ui/console_ui.h"
-#include "ros_bridge/ros_bridge.h"
+#include "app/reference_vision_loop.h"
 
 #include <signal.h>
 #include <execinfo.h>
@@ -46,6 +38,7 @@
 static std::atomic<bool> g_stop_requested{false};
 static std::atomic<int> g_sigint_count{0};
 
+// 致命信号处理：打印回溯后立即退出，避免进程继续处于未定义状态。
 static void segv_handler(int sig) {
     void* bt[20];
     int bt_size = backtrace(bt, 20);
@@ -56,6 +49,7 @@ static void segv_handler(int sig) {
     _exit(128 + sig);
 }
 
+// 软停止信号处理：第一次请求优雅退出，第二次强制退出。
 static void stop_handler(int sig) {
     (void)sig;
     const int n = g_sigint_count.fetch_add(1) + 1;
@@ -68,11 +62,8 @@ static void stop_handler(int sig) {
 }
 
 int main(int argc, char** argv) {
-    // 获取包的 share 目录绝对路径
-    std::string package_share_dir = ament_index_cpp::get_package_share_directory("eai_bot");
-    std::string config_path = package_share_dir + "/config/default.yaml";
-
-    // 如果命令行传入了配置文件路径，则覆盖默认值
+    // 配置路径：默认使用 config/default.yaml，允许命令行传入覆盖。
+    std::string config_path = "config/default.yaml";
     if (argc == 2) {
         config_path = argv[1];
     }
@@ -83,58 +74,79 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    // 定义相对路径转换函数
-    auto resolve_path = [&](const std::string& path) -> std::string {
-        if (path.rfind("./", 0) == 0) {
-            return package_share_dir + "/" + path.substr(2);
-        }
-        return path;
-    };
-
-    // 读取配置并直接转换所有路径
+    // 模型类型：当前仅支持 "yolo"。
     std::string model_type = cfg.GetString("model.type");
-    std::string yolo_model_path = resolve_path(cfg.GetString("model.yolo.path"));
-    std::string scrfd_model_path = resolve_path(cfg.GetString("model.scrfd.path"));
-
-    //std::string model_type = cfg.GetString("model.type");
-    //std::string yolo_model_path = cfg.GetString("model.yolo.path");
-    //std::string scrfd_model_path = cfg.GetString("model.scrfd.path");
+    // YOLO 模型文件路径（RKNN）。
+    std::string yolo_model_path = cfg.GetString("model.yolo.path");
+    // SCRFD 模型文件路径（RKNN）。
+    std::string scrfd_model_path = cfg.GetString("model.scrfd.path");
+    // SCRFD 置信度阈值（百分比转 0~1 浮点）。
     float scrfd_conf_th = static_cast<float>(cfg.GetInt("model.scrfd.conf_threshold_percent")) / 100.0f;
+    // SCRFD NMS 阈值（百分比转 0~1 浮点）。
     float scrfd_nms_th = static_cast<float>(cfg.GetInt("model.scrfd.nms_threshold_percent")) / 100.0f;
+    // 推理线程数（每个启用槽位的工作线程配置）。
     int infer_threads = cfg.GetInt("system.infer_threads");
+    // 是否始终启用 yolo 槽位（不随场景动态开关）。
     bool yolo_always_on = cfg.GetBool("system.slots.yolo_always_on");
+    // 场景状态切换驻留帧数（防抖，避免频繁抖动切换）。
     int scene_dwell_frames = cfg.GetInt("system.slots.scene_dwell_frames");
+    // 切换到 person_present 所需连续帧数。
     int switch_present_threshold = cfg.GetInt("system.switch.present_threshold");
+    // 切换到 idle 所需连续帧数。
     int switch_absent_threshold = cfg.GetInt("system.switch.absent_threshold");
+    // 是否使用单线程调度模式（调试/资源受限场景可用）。
     bool single_thread = cfg.GetBool("system.switch.single_thread");
+    // 全局日志级别：debug/info/warn/error/fatal。
     std::string log_level = cfg.GetString("system.log_level");
+    // NPU 核心绑定列表，例如 [0,1]。
     std::vector<int> npu_cores = cfg.GetIntArray("system.npu_cores");
+    // 输入源：摄像头设备或视频文件路径。
     std::string input_source = cfg.GetString("input.source");
+    // 采集宽度（像素）。
     int input_width = cfg.GetInt("input.width");
+    // 采集高度（像素）。
     int input_height = cfg.GetInt("input.height");
+    // 输入旋转：none/ccw90/cw90/180（兼容 0/90cw）。
     std::string input_rotate = cfg.GetString("input.rotate");
+    // yolo person 类分数阈值（百分比）。
     int yolo_person_threshold_percent = cfg.GetInt("model.yolo.person_threshold_percent");
+    // 是否显示可视化窗口（无 GUI 环境请设 false）。
     bool show_window = cfg.GetBool("input.show_window");
+    // 显示目标屏幕宽度（像素）。
     int display_screen_w = cfg.GetInt("input.display.screen_width");
+    // 显示目标屏幕高度（像素）。
     int display_screen_h = cfg.GetInt("input.display.screen_height");
+    // 画面占屏最大比例（百分比）。
     int display_max_ratio_percent = cfg.GetInt("input.display.max_screen_ratio_percent");
+    // 是否全屏显示。
     bool display_fullscreen = cfg.GetBool("input.display.fullscreen");
+    // 标题栏保留像素（用于避免被系统栏遮挡）。
     int display_title_reserve = cfg.GetInt("input.display.title_bar_reserve_px");
+    // 是否启用 LLM 模块。
     bool llm_enabled = cfg.GetBool("model.llm.enabled");
-    LogInfo("MainROS: config %s model.llm.enabled=%s", config_path.c_str(),
+    LogInfo("Main: config %s model.llm.enabled=%s", config_path.c_str(),
             llm_enabled ? "true" : "false");
-    //std::string llm_model_path = cfg.GetString("model.llm.path");
-    // 对于 llm_model_path 也进行转换
-    std::string llm_model_path = resolve_path(cfg.GetString("model.llm.path"));
+    // LLM 模型文件路径（.rkllm）。
+    std::string llm_model_path = cfg.GetString("model.llm.path");
+    // 单轮最大生成 token 数。
     int llm_max_new_tokens = cfg.GetInt("model.llm.max_new_tokens");
+    // 上下文窗口长度上限。
     int llm_max_context_len = cfg.GetInt("model.llm.max_context_len");
+    // 生成侧系统提示（rkllm_set_chat_template）；空串则跳过。
     std::string llm_system_prompt = cfg.GetString("model.llm.system_prompt");
+    // 人脸稳定连续帧阈值（达到后打开对话门控）。
     int llm_face_stable_frames = cfg.GetInt("model.llm.face_stable_frames");
+    // 人脸缺失连续帧阈值（达到后进入 Grace 宽限态）。
     int llm_face_absent_frames = cfg.GetInt("model.llm.face_absent_frames");
+    // 人脸缺失后的会话宽限期（毫秒）。
     int llm_grace_timeout_ms = cfg.GetInt("model.llm.grace_timeout_ms");
+    // 会话空闲超时（毫秒，超时回到锁定态）。
     int llm_idle_timeout_ms = cfg.GetInt("model.llm.idle_timeout_ms");
+    // 是否在 SCRFD 激活时预加载 LLM。
     bool llm_preload_on_scrfd = cfg.GetBool("model.llm.preload_on_scrfd");
+    // 是否程序启动后立即异步预加载 LLM。
     bool llm_preload_on_startup = cfg.GetBool("model.llm.preload_on_startup");
+    // 自动问候语（检测到稳定人脸后输出）。
     std::string llm_auto_greeting_text = cfg.GetString("model.llm.auto_greeting_text");
     bool llm_tts_enabled = cfg.GetBool("model.tts.enabled");
     bool llm_tts_skip_greeting = cfg.GetBool("model.tts.skip_static_greeting");
@@ -175,23 +187,15 @@ int main(int argc, char** argv) {
         signal(SIGINT, stop_handler);
         signal(SIGTERM, stop_handler);
 
-        // ==============================================================
-        // ★ 唯一新增：ROS2 初始化
-        // ==============================================================
-        eai::ros_bridge::RosBridge ros_bridge(argc, argv, "eai_detector");
-
         ModelCoordinator coordinator;
         coordinator.SetSlotOptions(yolo_always_on);
         coordinator.SetSceneDwellFrames(scene_dwell_frames);
         coordinator.SetTtsVisualThrottleEnabled(llm_tts_visual_throttle);
         coordinator.SetYoloInferStride(llm_tts_yolo_stride);
 
-        // 注意声明顺序：voice_bridge 必须在 llm_worker 之前声明，
-        // 使退出作用域时 voice_bridge 后于 llm_worker 析构，
-        // 避免 LlmWorker 析构时解引用悬空的 voice_bridge_ 指针。
-        VoiceReplyBridge voice_bridge;
         std::shared_ptr<LlmWorker> llm_worker;
         std::shared_ptr<TtsWorker> tts_worker;
+        VoiceReplyBridge voice_bridge;
         coordinator.GetLlmGreeting().SetTriggerThreshold(llm_face_stable_frames);
         coordinator.GetLlmGreeting().SetFaceAbsentThreshold(llm_face_absent_frames);
         coordinator.GetLlmGreeting().SetGraceTimeoutMs(llm_grace_timeout_ms);
@@ -207,19 +211,11 @@ int main(int argc, char** argv) {
                 llm_worker->RequestInitializeAsync();
             }
             if (llm_tts_enabled) {
-                /*
                 MeloTtsConfig tts_cfg;
                 tts_cfg.encoder_path = cfg.GetString("model.tts.encoder_path");
                 tts_cfg.decoder_path = cfg.GetString("model.tts.decoder_path");
                 tts_cfg.lexicon_path = cfg.GetString("model.tts.lexicon_path");
-                tts_cfg.tokens_path = cfg.GetString("model.tts.tokens_path"); 
-                */
-                // 在 TTS 配置中转换路径
-                MeloTtsConfig tts_cfg;
-                tts_cfg.encoder_path = resolve_path(cfg.GetString("model.tts.encoder_path"));
-                tts_cfg.decoder_path = resolve_path(cfg.GetString("model.tts.decoder_path"));
-                tts_cfg.lexicon_path = resolve_path(cfg.GetString("model.tts.lexicon_path"));
-                tts_cfg.tokens_path = resolve_path(cfg.GetString("model.tts.tokens_path"));
+                tts_cfg.tokens_path = cfg.GetString("model.tts.tokens_path");
                 tts_cfg.language = cfg.GetString("model.tts.language");
                 tts_cfg.speak_id = cfg.GetInt("model.tts.speak_id");
                 tts_cfg.speed = llm_tts_speed;
@@ -248,44 +244,41 @@ int main(int argc, char** argv) {
                 if (llm_tts_preload) {
                     tts_worker->RequestInitializeAsync();
                 }
-                LogInfo("MainROS: TTS enabled encoder=%s", tts_cfg.encoder_path.c_str());
+                LogInfo("Main: TTS enabled encoder=%s", tts_cfg.encoder_path.c_str());
             }
-            LogInfo("MainROS: LLM configured path=%s preload_on_startup=%d preload_on_scrfd=%d",
+            LogInfo("Main: LLM configured path=%s preload_on_startup=%d preload_on_scrfd=%d",
                     llm_model_path.c_str(), llm_preload_on_startup ? 1 : 0,
                     llm_preload_on_scrfd ? 1 : 0);
         } else {
-            LogInfo("MainROS: LLM disabled (model.llm.enabled=false)");
+            LogInfo("Main: LLM disabled (model.llm.enabled=false)");
         }
 
         CameraSource camera(input_source, input_width, input_height);
         if (!camera.Open()) {
-            LogError("MainROS: failed to open input source '%s'", input_source.c_str());
+            LogError("Main: failed to open input source '%s'", input_source.c_str());
             std::cerr << "Failed to open input: " << input_source << std::endl;
             return -1;
         }
 
         FrameTransform frame_transform(input_rotate);
         ResultOverlay overlay;
-
-        // 显示窗口：仅在 show_window=true 时创建。
-        std::unique_ptr<IDisplaySink> display;
-        if (show_window) {
-            DisplayWindowConfig display_cfg;
-            display_cfg.enabled = true;
-            display_cfg.screen_width = display_screen_w;
-            display_cfg.screen_height = display_screen_h;
-            display_cfg.max_screen_ratio =
-                std::max(10, std::min(100, display_max_ratio_percent)) / 100.0f;
-            display_cfg.fullscreen = display_fullscreen;
-            display_cfg.title_bar_reserve_px = display_title_reserve;
-            display = CreateOpenCVDisplaySink(display_cfg);
-            display->Prepare();
-        }
+        DisplayWindowConfig display_cfg;
+        display_cfg.enabled = show_window;
+        display_cfg.screen_width = display_screen_w;
+        display_cfg.screen_height = display_screen_h;
+        display_cfg.max_screen_ratio =
+            std::max(10, std::min(100, display_max_ratio_percent)) / 100.0f;
+        display_cfg.fullscreen = display_fullscreen;
+        display_cfg.title_bar_reserve_px = display_title_reserve;
+        std::unique_ptr<IDisplaySink> display = CreateOpenCVDisplaySink(display_cfg);
 
         if (!coordinator.Init("yolo", base_adapter, yolo_model_path, npu_cores, infer_threads)) {
-            LogError("MainROS: ModelCoordinator init failed for yolo");
+            LogError("Main: ModelCoordinator init failed for yolo");
             return -1;
         }
+
+        ReferenceVisionLoop vision_loop(coordinator, frame_transform, overlay, *display);
+        vision_loop.Prepare();
 
         Pipeline pipeline(coordinator, infer_threads, single_thread);
         pipeline.SetExternalStopFlag(&g_stop_requested);
@@ -305,78 +298,34 @@ int main(int argc, char** argv) {
             [&frame_transform](const cv::Mat& frame, int frame_id) {
                 return frame_transform.Validate(frame, frame_id);
             });
-
-        // ==============================================================
-        // ★ PostTaskHandler：coordinator 更新 + ROS 发布 + 可选显示
-        // ==============================================================
-        pipeline.SetPostTaskHandler([&](InferenceTask& task) -> bool {
-            if (task.frame_id == -1) {
-                return false;
-            }
-
-            // 1. 更新场景机（与 main.cc 一致）。
-            coordinator.UpdateAfterFrame(task.merged_signals, task.original_frame);
-
-            // 2. ★ ROS 发布（唯一新增行）。
-            ros_bridge.PublishTask(task);
-
-            // 3. 可选 OpenCV 显示。
-            if (show_window && display && !task.original_frame.empty()) {
-                const bool suppress_yolo_person = coordinator.ShouldSuppressYoloPersonDraw();
-                for (const auto& slot_result : task.slot_results) {
-                    const bool suppress = (slot_result.slot == "yolo") && suppress_yolo_person;
-                    overlay.Apply(task.original_frame, slot_result.result_json, suppress);
-                }
-                overlay.DrawModelBadge(task.original_frame, coordinator.GetEnabledSlotsBadge());
-
-                cv::Mat display_frame = task.original_frame.isContinuous()
-                    ? task.original_frame : task.original_frame.clone();
-                display->Show(display_frame);
-            }
-
-            return true;
+        pipeline.SetPostTaskHandler([&vision_loop](InferenceTask& task) {
+            return vision_loop.OnInferenceTask(task);
         });
 
-        // 终端键盘输入：非阻塞读取 stdin，回车后提交为 YOU>（与旧 main.cc 一致）。
         ConsoleUi console_ui;
         console_ui.SetSubmitHandler([&coordinator](const std::string& line) {
             return coordinator.GetLlmGreeting().SubmitUserPrompt(line);
         });
         console_ui.LogAvailability();
         coordinator.GetLlmGreeting().LogStartupHint();
-
-        // ROS 输入订阅 /eai/user_prompt：与终端键盘共用同一提交入口。
-        ros_bridge.SetInputHandler([&coordinator](const std::string& text) {
-            return coordinator.GetLlmGreeting().SubmitUserPrompt(text);
-        });
-
-        pipeline.SetIdleHandler([&]() {
-            if (show_window && display) {
-                const int key = display->PollKey(1);
-                if (key == 27) {  // ESC → 退出。
-                    g_stop_requested.store(true);
-                }
+        pipeline.SetIdleHandler([&vision_loop, &console_ui]() {
+            if (!vision_loop.PumpIdle([&console_ui]() { console_ui.Poll(); })) {
+                g_stop_requested.store(true);
             }
-            console_ui.Poll();
         });
-
         pipeline.SetOnStop([&coordinator]() {
             coordinator.GetLlmGreeting().AbortActiveGeneration();
         });
 
-        LogInfo("MainROS: warming up scrfd slot...");
+        LogInfo("Main: warming up scrfd slot...");
         coordinator.WarmupSlot("scrfd");
 
-        LogInfo("MainROS: yolo=%s scrfd=%s infer_threads=%d llm=%s",
+        LogInfo("Main: yolo=%s scrfd=%s infer_threads=%d llm=%s",
                 yolo_model_path.c_str(), scrfd_model_path.c_str(), infer_threads,
                 llm_enabled ? "on" : "off");
 
         pipeline.Run();
-
-        // 清理。
-        if (show_window && display) {
-            display->Shutdown();
-        }
+        vision_loop.Shutdown();
         camera.Release();
         if (tts_worker) {
             tts_worker->Shutdown();
