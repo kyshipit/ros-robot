@@ -11,6 +11,7 @@
  *
  * 所有 engine/、platform/、adapters/ 代码不动。
  */
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -66,8 +67,11 @@ static void stop_handler(int sig) {
 }
 
 int main(int argc, char** argv) {
-    // 配置路径：默认使用 config/default.yaml，允许命令行传入覆盖。
-    std::string config_path = "config/default.yaml";
+    // 获取包的 share 目录绝对路径
+    std::string package_share_dir = ament_index_cpp::get_package_share_directory("eai_bot");
+    std::string config_path = package_share_dir + "/config/default.yaml";
+
+    // 如果命令行传入了配置文件路径，则覆盖默认值
     if (argc == 2) {
         config_path = argv[1];
     }
@@ -78,12 +82,22 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    // ==================================================================
-    // 以下配置读取与 main.cc 完全一致
-    // ==================================================================
+    // 定义相对路径转换函数
+    auto resolve_path = [&](const std::string& path) -> std::string {
+        if (path.rfind("./", 0) == 0) {
+            return package_share_dir + "/" + path.substr(2);
+        }
+        return path;
+    };
+
+    // 读取配置并直接转换所有路径
     std::string model_type = cfg.GetString("model.type");
-    std::string yolo_model_path = cfg.GetString("model.yolo.path");
-    std::string scrfd_model_path = cfg.GetString("model.scrfd.path");
+    std::string yolo_model_path = resolve_path(cfg.GetString("model.yolo.path"));
+    std::string scrfd_model_path = resolve_path(cfg.GetString("model.scrfd.path"));
+
+    //std::string model_type = cfg.GetString("model.type");
+    //std::string yolo_model_path = cfg.GetString("model.yolo.path");
+    //std::string scrfd_model_path = cfg.GetString("model.scrfd.path");
     float scrfd_conf_th = static_cast<float>(cfg.GetInt("model.scrfd.conf_threshold_percent")) / 100.0f;
     float scrfd_nms_th = static_cast<float>(cfg.GetInt("model.scrfd.nms_threshold_percent")) / 100.0f;
     int infer_threads = cfg.GetInt("system.infer_threads");
@@ -108,7 +122,9 @@ int main(int argc, char** argv) {
     bool llm_enabled = cfg.GetBool("model.llm.enabled");
     LogInfo("MainROS: config %s model.llm.enabled=%s", config_path.c_str(),
             llm_enabled ? "true" : "false");
-    std::string llm_model_path = cfg.GetString("model.llm.path");
+    //std::string llm_model_path = cfg.GetString("model.llm.path");
+    // 对于 llm_model_path 也进行转换
+    std::string llm_model_path = resolve_path(cfg.GetString("model.llm.path"));
     int llm_max_new_tokens = cfg.GetInt("model.llm.max_new_tokens");
     int llm_max_context_len = cfg.GetInt("model.llm.max_context_len");
     std::string llm_system_prompt = cfg.GetString("model.llm.system_prompt");
@@ -187,11 +203,19 @@ int main(int argc, char** argv) {
                 llm_worker->RequestInitializeAsync();
             }
             if (llm_tts_enabled) {
+                /*
                 MeloTtsConfig tts_cfg;
                 tts_cfg.encoder_path = cfg.GetString("model.tts.encoder_path");
                 tts_cfg.decoder_path = cfg.GetString("model.tts.decoder_path");
                 tts_cfg.lexicon_path = cfg.GetString("model.tts.lexicon_path");
-                tts_cfg.tokens_path = cfg.GetString("model.tts.tokens_path");
+                tts_cfg.tokens_path = cfg.GetString("model.tts.tokens_path"); 
+                */
+                // 在 TTS 配置中转换路径
+                MeloTtsConfig tts_cfg;
+                tts_cfg.encoder_path = resolve_path(cfg.GetString("model.tts.encoder_path"));
+                tts_cfg.decoder_path = resolve_path(cfg.GetString("model.tts.decoder_path"));
+                tts_cfg.lexicon_path = resolve_path(cfg.GetString("model.tts.lexicon_path"));
+                tts_cfg.tokens_path = resolve_path(cfg.GetString("model.tts.tokens_path"));
                 tts_cfg.language = cfg.GetString("model.tts.language");
                 tts_cfg.speak_id = cfg.GetInt("model.tts.speak_id");
                 tts_cfg.speed = llm_tts_speed;

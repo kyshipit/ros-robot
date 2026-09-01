@@ -134,6 +134,8 @@ target_include_directories(eai_bot_app PRIVATE
   ${OPENCV_INCLUDE_DIRS}
 )
 
+find_package(ament_index_cpp REQUIRED)
+
 target_link_libraries(eai_bot_app
   imageutils
   fileutils
@@ -143,6 +145,7 @@ target_link_libraries(eai_bot_app
   ${LIBRKLLMRT}
   ${LIBGOMP}
   ${OPENCV_LIBS}
+  ament_index_cpp::ament_index_cpp
 )
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
@@ -155,8 +158,8 @@ target_link_libraries(eai_bot_app "${cpp_typesupport_target}")
 target_link_libraries(eai_bot_app rclcpp::rclcpp)
 
 install(TARGETS eai_bot_app DESTINATION lib/${PROJECT_NAME})
-install(FILES ${LIBRKNNRT} DESTINATION lib/${PROJECT_NAME})
-install(FILES ${LIBRKLLMRT} ${LIBGOMP} DESTINATION lib/${PROJECT_NAME})
+install(FILES ${LIBRKNNRT} DESTINATION lib)
+install(FILES ${LIBRKLLMRT} ${LIBGOMP} DESTINATION lib)
 
 install(FILES
   ${CMAKE_CURRENT_SOURCE_DIR}/../../model/coco_80_labels_list.txt
