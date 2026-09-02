@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<!-- 通用宏：惯性 / 几何 / 颜色。供 mbot.xacro 复用，减少手写错误。 -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- 圆柱（轮子同轴）惯性，绕 Z 旋转轴。 -->
+  <xacro:macro name="cylinder_inertia" params="mass radius length">
+    <inertial>
+      <mass value="${mass}"/>
+      <inertia ixx="${0.5 * mass * radius * radius}" ixy="0" ixz="0"
+               iyy="${mass * (3 * radius * radius + length * length) / 12}" iyz="0"
+               izz="${mass * (3 * radius * radius + length * length) / 12}"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- 实心立方体（底盘）惯性。x/y/z 为长宽高。 -->
+  <xacro:macro name="box_inertia" params="mass x y z">
+    <inertial>
+      <mass value="${mass}"/>
+      <inertia ixx="${mass / 12 * (y * y + z * z)}" ixy="0" ixz="0"
+               iyy="${mass / 12 * (x * x + z * z)}" iyz="0"
+               izz="${mass / 12 * (x * x + y * y)}"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- 球体惯性（yaw 关节的简化近似）。 -->
+  <xacro:macro name="sphere_inertia" params="mass radius">
+    <inertial>
+      <mass value="${mass}"/>
+      <inertia ixx="${2.0 / 5.0 * mass * radius * radius}" ixy="0" ixz="0"
+               iyy="${2.0 / 5.0 * mass * radius * radius}" iyz="0"
+               izz="${2.0 / 5.0 * mass * radius * radius}"/>
+    </inertial>
+  </xacro:macro>
+
+</robot>

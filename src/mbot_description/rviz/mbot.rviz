@@ -1,0 +1,26 @@
+# Jazzy 中，`Displays`、`Views`侧边面板是 rviz2 主程序内置，不需要在 rviz 配置文件 Panels 块声明 Class
+#Panels:
+#  - Class: rviz_default_plugins/Displays
+#    Name: Displays
+#  - Class: rviz_default_plugins/Views
+#    Name: Views
+
+Visualization Manager:
+  Global Options:
+    Fixed Frame: base_link
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Show Names: true
+    - Class: rviz_default_plugins/RobotModel
+      Name: RobotModel
+      Description Source: Topic
+      Description Topic:
+        Value: /robot_description
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 2.0

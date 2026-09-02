@@ -1,0 +1,93 @@
+<?xml version="1.0"?>
+<!--
+  传感器挂载宏：相机 / 激光雷达 / IMU。
+
+  这些是「物理安装位」描述，只定义坐标系与几何占位，
+  不包含任何 gazebo 插件——插件在 mbot_gazebo 阶段注入。
+
+  相机对应 eai_bot 的 YOLO/SCRFD 输入镜头；外参先按合理假设，
+  真机阶段再用手眼标定修正。
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- 相机：前视，离地约 1.0m，略下压。 -->
+  <xacro:macro name="camera" params="name parent x y z roll pitch yaw">
+    <joint name="${name}_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${name}_link"/>
+      <origin xyz="${x} ${y} ${z}" rpy="${roll} ${pitch} ${yaw}"/>
+    </joint>
+    <link name="${name}_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.04 0.06 0.02"/>
+        </geometry>
+        <material name="black"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.04 0.06 0.02"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.05"/>
+        <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+      </inertial>
+    </link>
+  </xacro:macro>
+
+  <!-- 激光雷达：2D 型，装在底盘前上方。 -->
+  <xacro:macro name="laser" params="name parent x y z roll pitch yaw">
+    <joint name="${name}_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${name}_link"/>
+      <origin xyz="${x} ${y} ${z}" rpy="${roll} ${pitch} ${yaw}"/>
+    </joint>
+    <link name="${name}_link">
+      <visual>
+        <geometry>
+          <cylinder radius="0.035" length="0.05"/>
+        </geometry>
+        <material name="white"/>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="0.035" length="0.05"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.1"/>
+        <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
+      </inertial>
+    </link>
+  </xacro:macro>
+
+  <!-- IMU：装在底盘中心。 -->
+  <xacro:macro name="imu" params="name parent x y z roll pitch yaw">
+    <joint name="${name}_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${name}_link"/>
+      <origin xyz="${x} ${y} ${z}" rpy="${roll} ${pitch} ${yaw}"/>
+    </joint>
+    <link name="${name}_link">
+      <visual>
+        <geometry>
+          <box size="0.03 0.03 0.01"/>
+        </geometry>
+        <material name="blue"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.03 0.03 0.01"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.02"/>
+        <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+      </inertial>
+    </link>
+  </xacro:macro>
+
+</robot>

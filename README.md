@@ -86,6 +86,12 @@ ros2 run eai_bot eai_bot_app
 | `/eai/detections/yolo`    | `eai_bot/DetectionResult` | YOLO 检测结果             |
 | `/eai/detections/scrfd`   | `eai_bot/DetectionResult` | SCRFD 人脸检测结果        |
 
+- **订阅话题**：
+
+| 话题                      | 消息类型              | 说明                         |
+| ------------------------- | --------------------- | ---------------------------- |
+| `/eai/user_prompt`        | `std_msgs/String`     | 外部节点向 LLM 提交对话文本（需人脸门控开启才被接受） |
+
 - **自定义消息**（`src/eai_bot/msg/`）：
 
 | 消息                 | 说明                                         |
@@ -94,12 +100,17 @@ ros2 run eai_bot eai_bot_app
 | `Box`                | 检测框（label、坐标、score、可选 5 个人脸关键点） |
 | `DetectionResult`    | 每帧每槽位一条：frame_id、slot、是否有人/人脸、所有框 |
 
-桥接层通过 `ros_bridge/ros_bridge.cpp` 将推理结果转换为消息发布；engine/、platform/、adapters/ 等业务代码不感知 ROS。订阅示例：
+桥接层通过 `ros_bridge/ros_bridge.cpp` 将推理结果转换为消息发布，并订阅 `/eai/user_prompt` 接收外部对话输入；engine/、platform/、adapters/ 等业务代码不感知 ROS。订阅示例：
 
 ```bash
 # 在板端另开终端，source 工作空间后订阅
 ros2 topic echo /eai/detections/yolo eai_bot/msg/DetectionResult
+
+# 向 LLM 提交对话文本（需已检测到稳定人脸、门控开启）
+ros2 topic pub /eai/user_prompt std_msgs/msg/String "{data: '你好'}" --once
 ```
+
+除 ROS 话题外，应用也支持**终端键盘输入**：直接在前台终端打字并回车即可提交对话（等价于发布 `/eai/user_prompt`），提交时会回显 `YOU>` 行。两种输入方式均复用同一条入口、统一经过人脸门控判断。
 
 ## ⚙️ 配置说明
 
