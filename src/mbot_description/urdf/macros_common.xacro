@@ -6,9 +6,11 @@
   <xacro:macro name="cylinder_inertia" params="mass radius length">
     <inertial>
       <mass value="${mass}"/>
-      <inertia ixx="${0.5 * mass * radius * radius}" ixy="0" ixz="0"
-               iyy="${mass * (3 * radius * radius + length * length) / 12}" iyz="0"
-               izz="${mass * (3 * radius * radius + length * length) / 12}"/>
+      <inertia ixx="${mass * (3 * radius * radius + length * length) / 12}"
+              ixy="0" ixz="0"
+              iyy="${mass * (3 * radius * radius + length * length) / 12}"
+              iyz="0"
+              izz="${0.5 * mass * radius * radius}"/>
     </inertial>
   </xacro:macro>
 

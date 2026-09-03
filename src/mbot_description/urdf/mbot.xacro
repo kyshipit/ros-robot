@@ -90,6 +90,7 @@
         <geometry>
           <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
         </geometry>
+        <!-- URDF cylinder 的 length 沿局部 Z 轴；绕 X 转 90° 使长轴沿 Y，盘面朝前后。 -->
         <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
         <material name="black"/>
       </visual>
