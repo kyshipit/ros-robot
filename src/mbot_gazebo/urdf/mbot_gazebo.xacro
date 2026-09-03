@@ -1,0 +1,117 @@
+<?xml version="1.0"?>
+<!--
+  mbot_gazebo.xacro —— 基于 mbot_description 的模型，叠加 Gazebo Harmonic 插件。
+
+  关键差异（相对 mbot_description 纯显示模型）：
+    - 车轮加 <gazebo> 摩擦材质（保证差速驱动不打滑）；
+    - 通过 <ros2_control> 标签加载 GazeboSimSystem 硬件接口；
+    - 差速驱动由 ros2_control 的 diff_drive_controller 负责（odom + cmd_vel）；
+    - 激光雷达（ray sensor，发布 /scan）；
+    - IMU（imu sensor，发布 /imu）；
+    - ros_gz_bridge 将 gz topic 桥接为 ROS2 topic。
+
+  发布 / 订阅关系（阶段 2 闭环目标）：
+    订阅 /cmd_vel（diff_drive）
+    发布 /odom（diff_drive）、/scan（ray）、/imu（imu）、/joint_states（ros2_control）
+-->
+<robot name="mbot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- 复用 mbot_description 的主模型（底盘、车轮、传感器坐标系）。 -->
+  <xacro:include filename="$(find mbot_description)/urdf/mbot.xacro"/>
+
+  <!-- ===================== ros2_control 硬件接口（modern 格式） =====================
+  gz_ros2_control 通过 <ros2_control> 标签把 gazebo 里的关节暴露成
+  hardware_interface 的 velocity/position 接口，供控制器使用。 -->
+
+  <gazebo>
+    <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>$(find mbot_gazebo)/config/ros2_control.yaml</parameters>
+    </plugin>
+  </gazebo>
+
+  <ros2_control name="GazeboSimSystem" type="system">
+    <hardware>
+      <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+    </hardware>
+    <joint name="left_wheel_joint">
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="right_wheel_joint">
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+  </ros2_control>
+
+  <!-- ===================== 差速驱动 =====================
+  注意：差速控制完全由 ros2_control 的 diff_drive_controller 负责
+  （见 config/ros2_control.yaml），这里不再用 gazebo 原生 DiffDrive 插件。
+  轮子的 velocity 硬件接口由 GazeboSimSystem 暴露。 -->
+
+  <!-- ===================== 激光雷达（ray sensor → /scan） ===================== -->
+  <gazebo reference="laser_link">
+    <sensor name="laser_sensor" type="ray">
+      <pose>0 0 0 0 0 0</pose>
+      <update_rate>10</update_rate>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>360</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.14159</min_angle>
+            <max_angle>3.14159</max_angle>
+          </horizontal>
+        </scan>
+        <range>
+          <min>0.05</min>
+          <max>12.0</max>
+          <resolution>0.01</resolution>
+        </range>
+      </ray>
+      <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+        <render_engine>ogre2</render_engine>
+      </plugin>
+      <topic>scan</topic>
+      <always_on>true</always_on>
+    </sensor>
+  </gazebo>
+
+  <!-- ===================== IMU（→ /imu） ===================== -->
+  <gazebo reference="imu_link">
+    <sensor name="imu_sensor" type="imu">
+      <update_rate>50</update_rate>
+      <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+      <topic>imu</topic>
+      <always_on>true</always_on>
+    </sensor>
+  </gazebo>
+
+  <!-- ===================== 摩擦材质（保证车轮不打滑） ===================== -->
+  <gazebo reference="left_wheel_link">
+    <mu1>1.0</mu1>
+    <mu2>1.0</mu2>
+    <kp>1000000.0</kp>
+    <kd>1.0</kd>
+    <minDepth>0.001</minDepth>
+    <maxVel>0.1</maxVel>
+  </gazebo>
+  <gazebo reference="right_wheel_link">
+    <mu1>1.0</mu1>
+    <mu2>1.0</mu2>
+    <kp>1000000.0</kp>
+    <kd>1.0</kd>
+    <minDepth>0.001</minDepth>
+    <maxVel>0.1</maxVel>
+  </gazebo>
+  <gazebo reference="caster_wheel_link">
+    <mu1>0.01</mu1>
+    <mu2>0.01</mu2>
+    <kp>1000000.0</kp>
+    <kd>1.0</kd>
+    <minDepth>0.001</minDepth>
+    <maxVel>0.1</maxVel>
+  </gazebo>
+
+</robot>

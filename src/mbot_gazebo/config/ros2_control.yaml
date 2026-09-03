@@ -1,0 +1,58 @@
+# ros2_control.yaml —— GazeboSimSystem 硬件接口与控制器。
+#
+# 结构参考官方 gz_ros2_control_demos/diff_drive_controller.yaml：
+#   - controller_manager.ros__parameters 内嵌各控制器的 type 声明；
+#   - diff_drive_controller 是顶层节点，其参数在 ros__parameters 下。
+#
+# 架构：GazeboSimSystem（gz_ros2_control）暴露左右轮的 velocity 硬件接口；
+# joint_state_broadcaster 发布 /joint_states；
+# diff_drive_controller 订阅 /cmd_vel、做差速逆解算、发布 /odom 与 odom→base_footprint TF。
+
+controller_manager:
+  ros__parameters:
+    update_rate: 50  # Hz
+    use_sim_time: true   # 新增，顶层开启仿真时间
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+diff_drive_controller:
+  ros__parameters:
+    type: diff_drive_controller/DiffDriveController
+
+    left_wheel_names: ["left_wheel_joint"]
+    right_wheel_names: ["right_wheel_joint"]
+
+    wheel_separation: 0.32
+    wheel_radius: 0.08
+
+    wheel_separation_multiplier: 1.0
+    left_wheel_radius_multiplier: 1.0
+    right_wheel_radius_multiplier: 1.0
+
+    publish_rate: 50.0
+    odom_frame_id: odom
+    base_frame_id: base_footprint
+    pose_covariance_diagonal: [0.001, 0.001, 0.0, 0.0, 0.0, 0.01]
+    twist_covariance_diagonal: [0.001, 0.0, 0.0, 0.0, 0.0, 0.01]
+
+    open_loop: true   # 改为true，绕过关节速度反馈闭环
+    allow_multi_dof_cmd_interface: true  # 新增，velocity接口必须
+    enable_odom_tf: true
+    cmd_vel_timeout: 10.0   # 放大超时时间，排除超时清零
+    # use_stamped_vel: false 时订阅标准 /cmd_vel（geometry_msgs/Twist），
+    # 这是 Nav2 控制器默认发布的话题，阶段 3 导航直接兼容。
+    use_stamped_vel: false
+
+    # 速度/加速度限幅
+    linear.x.has_velocity_limits: true
+    linear.x.has_acceleration_limits: true
+    linear.x.max_velocity: 0.5
+    linear.x.min_velocity: -0.5
+    linear.x.max_acceleration: 1.0
+    angular.z.has_velocity_limits: true
+    angular.z.has_acceleration_limits: true
+    angular.z.max_velocity: 1.5
+    angular.z.min_velocity: -1.5
+    angular.z.max_acceleration: 1.5
+    angular.z.min_acceleration: -1.5
