@@ -1,197 +1,126 @@
-# ros-robot：基于 ROS2 的插件化边缘 AI 机器人平台
+# ros-robot：边缘 AI 机器人平台（RK3588 感知 + Gazebo 仿真导航）
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-![License: MIT](https://img.shields.io/badge/ROS2-0091BD?style=flat-square&logo=ros&logoColor=white)
-![OpenCV](https://img.shields.io/badge/OpenCV-green?logo=opencv)
+![ROS2](https://img.shields.io/badge/ROS2-Jazzy-0091BD?style=flat-square&logo=ros&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-RK3588-red)
-![YOLO](https://img.shields.io/badge/YOLOv5-111F68?logo=yolo&logoColor=white)
-![TTS](https://img.shields.io/badge/TTS-MeloTTS-blue)
-![SCRFD](https://img.shields.io/badge/SCRFD-FF6F00)
+![Gazebo](https://img.shields.io/badge/Gazebo-Harmonic-8A2BE2)
+![Nav2](https://img.shields.io/badge/Nav2-1.3-00B5AD)
+![YOLO](https://img.shields.io/badge/YOLOv5-111F68)
 ![RKNN](https://img.shields.io/badge/RKNN-orange)
 ![RKLLM](https://img.shields.io/badge/RKLLM-brightgreen)
 
-ros-robot 是为 Rockchip RK3588 设计、基于 ROS2（Jazzy）的可扩展边缘 AI 机器人平台。通过一份 YAML 配置文件驱动，结合多线程视频流水线与插件化架构，内置 YOLO、SCRFD 模型，并支持本地 RKLLM 对话及语音合成（TTS）。检测结果通过自定义 ROS2 消息实时发布，默认应用展示了人脸门控、AI 问候与对话等功能。
+ros-robot 是一个**分阶段构建的机器人全栈平台**，包含两个相互独立的子系统：
 
-> 本仓库是标准 colcon 工作空间：核心逻辑封装为 ROS2 包 `eai_bot`，通过 `ros_bridge` 层将推理结果发布为 ROS2 话题，业务与 ROS 解耦。
+1. **边缘 AI 感知**（`eai_bot`）—— 运行在 RK3588 开发板的视觉/对话/TTS 推理平台；
+2. **仿真导航**（`mbot_description` / `mbot_gazebo` / `mbot_navigation`）—— 在 Gazebo Harmonic 里的两轮差速机器人与 Nav2 导航栈，纯软件、与硬件解耦。
 
+> 本仓库是标准 colcon 工作空间。两个子系统通过 ROS2 话题在坐标系（TF）层面汇合，感知结果最终驱动导航决策（阶段 4，真机对接）。
 
 ---
-## 📋 目录
 
-- [✨ 核心特性](#-核心特性)
-- [🏗️ 架构设计](#️-架构设计)
-- [🚀 快速开始](#-快速开始)
-- [🔌 ROS2 集成](#-ros2-集成)
-- [⚙️ 配置说明](#️-配置说明)
-- [📖 文档与代码入口](#-文档与代码入口)
-- [🔧 本地检查工具](#-本地检查工具)
-- [📄 License](#-license)
+## 📦 四个包
+
+| 包 | 子系统 | 职责 | 依赖硬件 |
+|----|--------|------|---------|
+| [`eai_bot`](src/eai_bot) | 感知 | YOLO/SCRFD 检测、RKLLM 对话、TTS 语音，发布 `/eai/detections/*` | RK3588 开发板 |
+| [`mbot_description`](src/mbot_description) | 仿真·模型 | 两轮差速底盘 URDF/xacro + TF 树，RViz 可视化 | 无（纯几何） |
+| [`mbot_gazebo`](src/mbot_gazebo) | 仿真·驱动 | Gazebo Harmonic 仿真，`/cmd_vel` → 差速 → `/odom` + TF + 激光/IMU | 无（纯仿真） |
+| [`mbot_navigation`](src/mbot_navigation) | 仿真·导航 | Nav2 全栈（SLAM + AMCL + NavFn/MPPI + costmap），2D Goal Pose 避障 | 无（纯仿真） |
+
 ---
 
-## ✨ 核心特性
+## 🏗️ 架构与三阶段
 
-- **插件化架构**：YOLO、SCRFD、LLM、TTS 均以插件形式实现，按需加载。
+```text
+感知（eai_bot）                           运动（mbot_*）
+─────────────                           ─────────────
+YOLO/SCRFD 检测 ──┐                      URDF（mbot_description）
+LLM 对话          ├─ /eai/detections     ──> Gazebo 仿真（mbot_gazebo）
+TTS 语音         ─┘   （阶段 4 对接）     ──> Nav2 导航（mbot_navigation）
+```
 
-- **配置驱动**：所有功能（检测、对话、语音）通过 `default.yaml` 灵活开关。
+仿真导航分三个阶段构建（均纯软件，真机导航调参前在仿真先跑通）：
 
-- **ROS2 集成**：以标准 `eai_bot` 包构建，检测结果实时发布为 ROS2 话题，可被其他 ROS 节点订阅。
+1. **阶段 1 · `mbot_description`** —— 机器人本体模型与坐标系（TF 树）；
+2. **阶段 2 · `mbot_gazebo`** —— 让机器人在仿真里动起来（差速驱动闭环）；
+3. **阶段 3 · `mbot_navigation`** —— 导航栈与避障（SLAM 建图 + 2D Goal Pose）。
 
-- **低延迟流水线**：视频帧处理与 LLM/TTS 逻辑分离，保证实时推理性能。
+> 阶段 4（真机对接）需要硬件配合，把 Gazebo 硬件接口换成真实电机驱动、接真激光/IMU、手眼标定、真机调参。真机对接待补充。
 
-- **开箱即用的人脸门控场景**：人员检测 → 人脸识别 → 自动问候 → 语音对话，完整端到端流程。
-
-- **支持本地大模型**：集成 RKLLM，无需联网即可进行对话推理。
-
-- **跨平台编译**：基于 colcon + 交叉工具链，一键编译并部署到正点原子 RK3588 开发板。
-
-
-## 🏗️ 架构设计
-
-| 层       | 目录                                     | 职责                                      |
-| -------- | ---------------------------------------- | ----------------------------------------- |
-| 入口     | `src/eai_bot/app/`                       | 读取 YAML，装配 Pipeline、ModelCoordinator 与 RosBridge |
-| 采集/显示 | `src/eai_bot/capture/`, `src/eai_bot/display/` | 采集帧、旋转、画框、OpenCV 预览    |
-| 引擎     | `src/eai_bot/engine/`                    | 预处理 → 推理 → 后处理回调               |
-| 策略     | `src/eai_bot/platform/`                  | 场景切换、人脸门控、自动问候逻辑          |
-| 模型插件 | `src/eai_bot/adapters/`                  | yolo / scrfd / llm / tts 插件，按配置启停 |
-| ROS2 桥接 | `src/eai_bot/ros_bridge/`               | 发布 ROS2 话题，业务与 ROS 解耦          |
-
-更详细的启动顺序、线程模型与设计决策请参阅：[docs/architecture-and-runtime.md](docs/architecture-and-runtime.md)。
+---
 
 ## 🚀 快速开始
 
-> 环境依赖：需要正点原子 RK3588 交叉工具链（`/opt/atk-dlrk3588-toolchain`）、板端 ROS2 sysroot（默认 `~/software/rk_sysroot`，可用 `SYSROOT_ROS` 环境变量覆盖），以及宿主机安装的 colcon 工具。
+### 边缘 AI 感知（eai_bot，需 RK3588 交叉工具链）
 
 ```bash
-# 1. 在仓库根目录执行交叉编译脚本（colcon build）
+# 交叉编译（正点原子 RK3588 工具链 + 板端 ROS2 sysroot）
 ./build-linux.sh
-
-# 2. 将编译产物（install 目录）同步到开发板（替换 <board_ip> 为板端地址）
-rsync -avz install/ root@<board_ip>:/path/to/workspace/install/
-
-# 3. 在板端工作空间目录下，source 后运行
-#    source /opt/ros/jazzy/setup.bash
-#    source install/setup.bash
+# 同步到开发板后运行
 ros2 run eai_bot eai_bot_app
 ```
 
-## 🔌 ROS2 集成
+详细配置、消息话题、门控逻辑见 [`docs/`](docs/)（`architecture-and-runtime.md` 等）。
 
-- **包名**：`eai_bot`（`ament_cmake` 包，`package.xml`）
-- **节点**：`eai_detector`（默认，见 `src/eai_bot/ros_bridge/ros_bridge.h`）
-- **发布话题**：
-
-| 话题                      | 消息类型              | 说明                         |
-| ------------------------- | --------------------- | ---------------------------- |
-| `/eai/detections/yolo`    | `eai_bot/DetectionResult` | YOLO 检测结果             |
-| `/eai/detections/scrfd`   | `eai_bot/DetectionResult` | SCRFD 人脸检测结果        |
-
-- **订阅话题**：
-
-| 话题                      | 消息类型              | 说明                         |
-| ------------------------- | --------------------- | ---------------------------- |
-| `/eai/user_prompt`        | `std_msgs/String`     | 外部节点向 LLM 提交对话文本（需人脸门控开启才被接受） |
-
-- **自定义消息**（`src/eai_bot/msg/`）：
-
-| 消息                 | 说明                                         |
-| -------------------- | -------------------------------------------- |
-| `Point2D`            | 2D 像素坐标                                  |
-| `Box`                | 检测框（label、坐标、score、可选 5 个人脸关键点） |
-| `DetectionResult`    | 每帧每槽位一条：frame_id、slot、是否有人/人脸、所有框 |
-
-桥接层通过 `ros_bridge/ros_bridge.cpp` 将推理结果转换为消息发布，并订阅 `/eai/user_prompt` 接收外部对话输入；engine/、platform/、adapters/ 等业务代码不感知 ROS。订阅示例：
+### 仿真导航（mbot_*，x86 + ROS2 Jazzy + Gazebo Harmonic）
 
 ```bash
-# 在板端另开终端，source 工作空间后订阅
-ros2 topic echo /eai/detections/yolo eai_bot/msg/DetectionResult
+# 环境依赖：ROS2 Jazzy + Gazebo Harmonic（gz 8）+ Nav2 + slam_toolbox
 
-# 向 LLM 提交对话文本（需已检测到稳定人脸、门控开启）
-ros2 topic pub /eai/user_prompt std_msgs/msg/String "{data: '你好'}" --once
+# 终端 1：起仿真（spawn 机器人 + 差速驱动 + 激光/IMU）
+#   world 参数用 $(find mbot_gazebo) 解析，默认 empty.world
+ros2 launch mbot_gazebo spawn.launch.py \
+  world:=$(find mbot_gazebo | head -1)/share/mbot_gazebo/world/obstacles.world
+
+# 终端 2：起导航（SLAM 在线建图模式）
+ros2 launch mbot_navigation navigation.launch.py
+
+# 建图后用 RViz 的 "2D Goal Pose" 点目标点，机器人避障导航
+# 已建图用定位模式：slam:=false map:=<map.yaml 路径>
 ```
 
-除 ROS 话题外，应用也支持**终端键盘输入**：直接在前台终端打字并回车即可提交对话（等价于发布 `/eai/user_prompt`），提交时会回显 `YOU>` 行。两种输入方式均复用同一条入口、统一经过人脸门控判断。
+手动建图（键盘遥控，需 `twist_to_stamped` relay 把 Twist 转 TwistStamped）：
 
-## ⚙️ 配置说明
-
-关键配置项（位于 `src/eai_bot/config/default.yaml`）：
-
-| 配置项 | 说明 |
-| ------ | ---- |
-| `model.llm.enabled` | 是否启用 LLM 对话链路；若 `false` 或模型缺失，仅运行视觉检测 |
-| `model.tts.enabled` | 是否启用 TTS 语音播报（需 `model.llm.enabled` 为 `true`） |
-| `model.tts.skip_static_greeting` | `true` 时，人脸稳定后不播报静态问候语（只播报后续对话） |
-| `model.yolo.path` | YOLO 模型文件路径（相对于可执行文件） |
-| `model.scrfd.path` | SCRFD 人脸检测模型路径 |
-| `model.llm.path` | RKLLM 模型文件路径 |
-| `model.tts.encoder_path` / `decoder_path` | TTS 编码器/解码器 RKNN 路径 |
-| `model.tts.lexicon_path` / `tokens_path` | TTS 词表文件路径 |
-| `capture.device` | 摄像头设备节点（如 `/dev/video0`） |
-| `display.window_name` | 预览窗口标题 |
-
-完整字段及注释请参考 `src/eai_bot/config/default.yaml`。
+```bash
+ros2 run mbot_gazebo twist_to_stamped
+ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -r /cmd_vel:=/cmd_vel_raw
+```
 
 ---
 
-## 📖 文档与代码入口
+## 🔌 ROS2 集成（仿真链路）
 
-| 文档/用途 | 说明 |
-| --------- | ---- |
-| [docs/architecture-and-runtime.md](docs/architecture-and-runtime.md) | 启动顺序、流水线、槽位与平台设计详情 |
-| [docs/tts-melotts.md](docs/tts-melotts.md) | TTS 实现细节与验收指南 |
-| [docs/llm-model-coordinator.md](docs/llm-model-coordinator.md) | RKLLM 协调、门控逻辑与终端交互 UX |
-| [docs/troubleshooting.md](docs/troubleshooting.md) | 常见问题排查（无框、路径错误、退出崩溃等） |
-| [docs/adapters.md](docs/adapters.md) | 各插件模块（yolo/scrfd/llm/tts）的文件职责说明 |
+| 话题 | 类型 | 方向 | 说明 |
+|------|------|------|------|
+| `/cmd_vel`（`~/cmd_vel`） | TwistStamped | 订阅 | diff_drive_controller 输入（Nav2 controller_server 经 remap 发布） |
+| `/odom` | Odometry | 发布 | 里程计，`diff_drive_controller` 输出 |
+| `/scan` | LaserScan | 发布 | 激光雷达（gpu_lidar，frame_id=`laser_link`） |
+| `/imu` | Imu | 发布 | 惯性测量单元 |
+| `/joint_states` | JointState | 发布 | `joint_state_broadcaster` |
+| `/map` | OccupancyGrid | 发布 | SLAM 建图输出 |
+| `/map` → `/odom` → `/base_footprint` | TF 树 | — | 导航坐标链条 |
 
-**代码入口**：
-
-| 用途 | 路径 |
-| ---- | ---- |
-| 主程序入口 | `src/eai_bot/app/main_ros.cc` |
-| 每帧处理流水线 | `src/eai_bot/engine/pipeline.cpp` |
-| 场景协调器 | `src/eai_bot/platform/model_coordinator.cpp` |
-| 人脸门控与问候逻辑 | `src/eai_bot/platform/llm_greeting.cpp` |
-| ROS2 桥接层 | `src/eai_bot/ros_bridge/ros_bridge.cpp` |
-| RKLLM 插件 | `src/eai_bot/adapters/llm/` |
-| TTS 实现 | `src/eai_bot/voice/` + `src/eai_bot/adapters/melotts/` |
-| 默认配置文件 | `src/eai_bot/config/default.yaml` |
+感知侧话题（`/eai/detections/yolo`、`/eai/detections/scrfd`、`/eai/user_prompt`）见 `eai_bot` 的 docs。
 
 ---
 
-## 🔧 本地检查工具
-
-在推送至板端前，可在仓库根目录运行以下脚本进行预检：
-
-```bash
-# 检查 default.yaml 字段类型与范围（不检查文件存在性）
-python3 tools/check_config.py
-
-# 检查 model/ 下各模型文件是否存在（若缺少 .rkllm 仅给出警告）
-./tools/check_models.sh
-```
-
-## 仓库结构
+## 📂 仓库结构
 
 ```text
-ros-robot/                      # colcon 工作空间根目录
-├── build-linux.sh              # colcon 交叉编译脚本（RK3588 / aarch64 / ROS2 Jazzy）
-├── toolchain_rk3588.cmake      # 交叉编译工具链配置
-├── model/                      # yolov5.rknn、scrfd.rknn、.rkllm、TTS encoder/decoder RKNN、lexicon.txt、tokens.txt
-├── docs/                       # 平台文档
-├── tools/                      # 开发/集成辅助（配置校验、模型文件检查等），不参与板端运行
-└── src/
-    └── eai_bot/                # ROS2 包（ament_cmake）
-        ├── package.xml
-        ├── CMakeLists.txt
-        ├── msg/                # 自定义消息：Point2D、Box、DetectionResult
-        ├── app/                # main_ros.cc 入口（装载 config 与 ROS 装配）
-        ├── ros_bridge/         # ROS2 桥接层（发布检测话题）
-        ├── engine/ platform/ capture/ display/ voice/
-        ├── adapters/           # yolo / scrfd / llm / melotts 插件
-        ├── 3rdparty/           # rknpu2 / rkllm / onnx 等依赖
-        ├── utils/
-        └── config/default.yaml
+ros-robot/                        # colcon 工作空间
+├── src/
+│   ├── eai_bot/                  # 感知：YOLO/SCRFD/LLM/TTS（RK3588）
+│   ├── mbot_description/         # 阶段 1：URDF/xacro + TF 树
+│   ├── mbot_gazebo/              # 阶段 2：Gazebo 仿真 + ros2_control 差速
+│   └── mbot_navigation/          # 阶段 3：Nav2 导航参数与 launch
+├── model/                        # RKNN/RKLLM 推理模型
+├── docs/                         # eai_bot 与平台文档
+├── tools/                        # 配置校验、模型检查脚本
+├── build-linux.sh                # eai_bot 交叉编译脚本
+└── toolchain_rk3588.cmake        # RK3588 交叉工具链
 ```
+
+---
 
 ## 📄 License
 
