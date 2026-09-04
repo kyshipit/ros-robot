@@ -27,6 +27,7 @@ def generate_launch_description():
     pkg_ros_gz_sim = get_package_share_directory('ros_gz_sim')
 
     use_sim_time = LaunchConfiguration('use_sim_time', default='true')
+    world = LaunchConfiguration('world', default=os.path.join(pkg_gazebo, 'world', 'empty.world'))
 
     # ---- robot_state_publisher：发布 robot_description（含 <ros2_control> 标签） ----
     robot_state_publisher = Node(
@@ -34,8 +35,8 @@ def generate_launch_description():
         executable='robot_state_publisher',
         output='screen',
         parameters=[{'robot_description': Command(
-            ['xacro ', os.path.join(pkg_gazebo, 'urdf', 'mbot_gazebo.xacro')])}],
-        # use_sim_time 由 /clock bridge 驱动
+            ['xacro ', os.path.join(pkg_gazebo, 'urdf', 'mbot_gazebo.xacro')]),
+            'use_sim_time': use_sim_time}],
     )
 
     # ---- spawn 机器人到 gazebo ----
@@ -67,22 +68,29 @@ def generate_launch_description():
     )
 
     # ---- ros_gz_bridge：clock（use_sim_time）、scan、imu ----
+    # 关键：bridge 节点也需 use_sim_time，否则桥接 /scan、/imu 时可能用
+    # 系统时钟打时间戳，与 gazebo 仿真时间不一致，导致 costmap 的
+    # message_filter 报 "timestamp earlier than all data in transform cache"。
+    bridge_sim_time = {'use_sim_time': use_sim_time}
     clock_bridge = Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
         arguments=['/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock'],
+        parameters=[bridge_sim_time],
         output='screen',
     )
     laser_bridge = Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
         arguments=['/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan'],
+        parameters=[bridge_sim_time],
         output='screen',
     )
     imu_bridge = Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
         arguments=['/imu@sensor_msgs/msg/Imu[gz.msgs.IMU'],
+        parameters=[bridge_sim_time],
         output='screen',
     )
 
@@ -91,7 +99,7 @@ def generate_launch_description():
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(pkg_ros_gz_sim, 'launch', 'gz_sim.launch.py')),
-            launch_arguments=[('gz_args', [' -r -v 1 ', os.path.join(pkg_gazebo, 'world', 'empty.world')])],
+            launch_arguments=[('gz_args', [' -r -v 1 ', world])],
         ),
         # spawn → joint_state_broadcaster → diff_drive_controller（事件链）
         RegisterEventHandler(
@@ -113,4 +121,6 @@ def generate_launch_description():
         imu_bridge,
         DeclareLaunchArgument('use_sim_time', default_value='true',
                               description='使用仿真时钟'),
+        DeclareLaunchArgument('world', default_value=os.path.join(pkg_gazebo, 'world', 'empty.world'),
+                              description='gazebo world 文件路径'),
     ])

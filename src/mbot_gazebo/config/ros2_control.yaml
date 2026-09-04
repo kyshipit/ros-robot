@@ -11,7 +11,6 @@
 controller_manager:
   ros__parameters:
     update_rate: 50  # Hz
-    use_sim_time: true   # 新增，顶层开启仿真时间
 
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
@@ -36,13 +35,14 @@ diff_drive_controller:
     pose_covariance_diagonal: [0.001, 0.001, 0.0, 0.0, 0.0, 0.01]
     twist_covariance_diagonal: [0.001, 0.0, 0.0, 0.0, 0.0, 0.01]
 
-    open_loop: true   # 改为true，绕过关节速度反馈闭环
-    allow_multi_dof_cmd_interface: true  # 新增，velocity接口必须
+    open_loop: false
     enable_odom_tf: true
-    cmd_vel_timeout: 10.0   # 放大超时时间，排除超时清零
-    # use_stamped_vel: false 时订阅标准 /cmd_vel（geometry_msgs/Twist），
-    # 这是 Nav2 控制器默认发布的话题，阶段 3 导航直接兼容。
-    use_stamped_vel: false
+    cmd_vel_timeout: 0.5
+    # use_stamped_vel: true 时订阅 ~/cmd_vel（TwistStamped），用消息 stamp 判断超时。
+    # diff_drive_controller 无论 true/false 都只订阅 TwistStamped（无普通 Twist）。
+    # open_loop: false 让 odom 从关节反馈计算，即使无 cmd_vel 也持续发布 odom TF，
+    # 这是 Nav2 建立 map->odom->base_footprint TF 链的前提。
+    use_stamped_vel: true
 
     # 速度/加速度限幅
     linear.x.has_velocity_limits: true

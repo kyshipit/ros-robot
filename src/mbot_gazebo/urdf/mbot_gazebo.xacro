@@ -50,18 +50,29 @@
   （见 config/ros2_control.yaml），这里不再用 gazebo 原生 DiffDrive 插件。
   轮子的 velocity 硬件接口由 GazeboSimSystem 暴露。 -->
 
-  <!-- ===================== 激光雷达（ray sensor → /scan） ===================== -->
+  <!-- ===================== 激光雷达（gpu_lidar → /scan） =====================
+  Gazebo Harmonic (8) 已移除 type="ray"，2D 激光需用 type="gpu_lidar"。
+  完全对齐官方 turtlebot3 gz_waffle.sdf.xacro 的激光配置：
+    - type="gpu_lidar" + <ray> 标签；
+    - angle 用 0 到 6.28（360 度，正角度，避免负角度 bug）；
+    - <gz_frame_id> 显式指定 scan 的 frame_id。 -->
   <gazebo reference="laser_link">
-    <sensor name="laser_sensor" type="ray">
-      <pose>0 0 0 0 0 0</pose>
-      <update_rate>10</update_rate>
+    <sensor name="laser_sensor" type="gpu_lidar">
+      <always_on>true</always_on>
+      <!-- 关键：URDF->SDF 转换时 sensor 被挂到根 link base_footprint（z=0，
+           地面高度），导致激光在地面扫描、扫不到站立的障碍物。显式 pose
+           抬升到 laser_link 的正确高度（base_footprint 上方 0.24m）。 -->
+      <pose>0.05 0 0.24 0 0 0</pose>
+      <update_rate>5</update_rate>
+      <topic>scan</topic>
+      <gz_frame_id>laser_link</gz_frame_id>
       <ray>
         <scan>
           <horizontal>
             <samples>360</samples>
             <resolution>1</resolution>
-            <min_angle>-3.14159</min_angle>
-            <max_angle>3.14159</max_angle>
+            <min_angle>0.0</min_angle>
+            <max_angle>6.28319</max_angle>
           </horizontal>
         </scan>
         <range>
@@ -69,12 +80,12 @@
           <max>12.0</max>
           <resolution>0.01</resolution>
         </range>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.01</stddev>
+        </noise>
       </ray>
-      <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
-        <render_engine>ogre2</render_engine>
-      </plugin>
-      <topic>scan</topic>
-      <always_on>true</always_on>
     </sensor>
   </gazebo>
 
