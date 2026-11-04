@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mbot_navigation</name>
+  <version>0.1.0</version>
+  <description>Nav2 navigation stack configuration and launch for the mbot differential-drive robot (simulation tuning).</description>
+  <maintainer email="user@example.com">user</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>nav2_bringup</depend>
+  <depend>nav2_planner</depend>
+  <depend>nav2_controller</depend>
+  <depend>nav2_bt_navigator</depend>
+  <depend>nav2_amcl</depend>
+  <depend>nav2_map_server</depend>
+  <depend>nav2_lifecycle_manager</depend>
+  <depend>nav2_navfn_planner</depend>
+  <depend>nav2_mppi_controller</depend>
+  <depend>nav2_costmap_2d</depend>
+  <depend>slam_toolbox</depend>
+  <depend>rviz2</depend>
+
+  <exec_depend>mbot_description</exec_depend>
+  <exec_depend>mbot_gazebo</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
